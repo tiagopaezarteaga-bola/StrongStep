@@ -3845,36 +3845,46 @@
   let _liveNotifInterval = null;
 
   function _buildLiveNotifBody() {
+    // Calcular tiempo transcurrido desde startTime (igual que updateTimer)
+    const el = (startTime && running && !paused)
+      ? Math.floor((Date.now() - startTime - pausedTime) / 1000)
+      : 0;
+
     const parts = [];
+
     if (_notifCfg.dist()) {
       const dist = typeof d !== 'undefined' ? d : 0;
-      parts.push(dist >= 1000
-        ? (dist/1000).toFixed(2) + ' km'
-        : dist.toFixed(0) + ' m');
+      if (dist >= 1000) {
+        parts.push((dist/1000).toFixed(2) + ' km');
+      } else {
+        parts.push(dist.toFixed(1) + ' m');
+      }
     }
+
     if (_notifCfg.time()) {
-      const el = typeof elapsed !== 'undefined' ? elapsed : 0;
-      const h  = Math.floor(el / 3600);
-      const m  = Math.floor((el % 3600) / 60);
-      const s  = Math.floor(el % 60);
+      const h = Math.floor(el / 3600);
+      const m = Math.floor((el % 3600) / 60);
+      const s = el % 60;
       parts.push(h > 0
         ? `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
         : `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`);
     }
+
     if (_notifCfg.pace()) {
       const dist = typeof d !== 'undefined' ? d : 0;
-      const el   = typeof elapsed !== 'undefined' ? elapsed : 0;
       if (dist > 0 && el > 0) parts.push(_paceToSpeech(el/dist, paceUnit));
     }
+
     if (_notifCfg.speed()) {
       const dist = typeof d !== 'undefined' ? d : 0;
-      const el   = typeof elapsed !== 'undefined' ? elapsed : 0;
       if (dist > 0 && el > 0) parts.push(_speedToSpeech(dist/el, speedUnit));
     }
+
     if (_notifCfg.steps()) {
       const st = typeof stepCount !== 'undefined' ? stepCount : 0;
       parts.push(st + ' pasos');
     }
+
     return parts.join(' · ');
   }
 
