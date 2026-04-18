@@ -3872,7 +3872,16 @@
 
     if (_notifCfg.pace()) {
       const dist = typeof d !== 'undefined' ? d : 0;
-      if (dist > 0 && el > 0) parts.push(_paceToSpeech(el/dist, paceUnit));
+      if (dist > 0 && el > 0) {
+        const secPerM = el / dist;
+        const { value, label } = _convertPace(secPerM, paceUnit);
+        if (_paceMmss && label.trim().toLowerCase().startsWith('min')) {
+          const numVal = parseFloat(value);
+          if (!isNaN(numVal)) parts.push(_toMmss(numVal) + ' ' + label);
+        } else {
+          parts.push(value + ' ' + label);
+        }
+      }
     }
 
     if (_notifCfg.speed()) {
