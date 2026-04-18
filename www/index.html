@@ -1157,6 +1157,33 @@
 
   </div><!-- end param-grid wrapper -->
 
+  <!-- Notificación en barra: qué mostrar -->
+  <div style="margin-top:.75rem;padding-top:.75rem;border-top:1px solid var(--border);">
+    <span class="ventana-label" style="display:block;margin-bottom:.6rem;">🔔 Notificación en barra — mostrar:</span>
+    <div style="display:flex;flex-direction:column;gap:.4rem;">
+      <label style="display:flex;align-items:center;gap:.6rem;cursor:pointer;">
+        <input type="checkbox" id="notifDist"  checked style="accent-color:var(--accent);width:16px;height:16px;">
+        <span style="font-family:'DM Mono',monospace;font-size:.72rem;color:var(--text);">Distancia recorrida</span>
+      </label>
+      <label style="display:flex;align-items:center;gap:.6rem;cursor:pointer;">
+        <input type="checkbox" id="notifTime"  checked style="accent-color:var(--accent);width:16px;height:16px;">
+        <span style="font-family:'DM Mono',monospace;font-size:.72rem;color:var(--text);">Tiempo transcurrido</span>
+      </label>
+      <label style="display:flex;align-items:center;gap:.6rem;cursor:pointer;">
+        <input type="checkbox" id="notifPace"  checked style="accent-color:var(--accent);width:16px;height:16px;">
+        <span style="font-family:'DM Mono',monospace;font-size:.72rem;color:var(--text);">Ritmo</span>
+      </label>
+      <label style="display:flex;align-items:center;gap:.6rem;cursor:pointer;">
+        <input type="checkbox" id="notifSpeed" style="accent-color:var(--accent);width:16px;height:16px;">
+        <span style="font-family:'DM Mono',monospace;font-size:.72rem;color:var(--text);">Velocidad</span>
+      </label>
+      <label style="display:flex;align-items:center;gap:.6rem;cursor:pointer;">
+        <input type="checkbox" id="notifSteps" style="accent-color:var(--accent);width:16px;height:16px;">
+        <span style="font-family:'DM Mono',monospace;font-size:.72rem;color:var(--text);">Pasos</span>
+      </label>
+    </div>
+  </div>
+
   <!-- Stats raw/radf/angf -->
   <div class="stats-grid" style="grid-template-columns:1fr 1fr 1fr;margin-top:.75rem;margin-bottom:.75rem;">
     <div class="stat-box">
@@ -3771,17 +3798,92 @@
     }
   })();
 
+  // Referencias a los checkboxes de configuración de notificación
+  const _notifCfg = {
+    dist:  () => document.getElementById('notifDist')?.checked  ?? true,
+    time:  () => document.getElementById('notifTime')?.checked  ?? true,
+    pace:  () => document.getElementById('notifPace')?.checked  ?? true,
+    speed: () => document.getElementById('notifSpeed')?.checked ?? false,
+    steps: () => document.getElementById('notifSteps')?.checked ?? false,
+  };
+
+  // Notificación puntual (en cada anuncio de voz)
   function _showNotification(title, body) {
     if (!_notifPermission || !('Notification' in window)) return;
     try {
       new Notification(title, {
         body,
-        icon: '',
-        tag:  'strongstep-run',   // tag fijo → reemplaza la anterior (no acumula)
+        tag:      'strongstep-run',
         renotify: true,
-        silent: true              // no hacer sonido, solo mostrar banner
+        silent:   true
       });
     } catch(_) {}
+  }
+
+  // ── Notificación en tiempo real (se actualiza cada segundo) ──
+  let _liveNotifInterval = null;
+
+  function _buildLiveNotifBody() {
+    const parts = [];
+    if (_notifCfg.dist()) {
+      const dist = typeof d !== 'undefined' ? d : 0;
+      parts.push(dist >= 1000
+        ? '📍 ' + (dist/1000).toFixed(2) + ' km'
+        : '📍 ' + dist.toFixed(0) + ' m');
+    }
+    if (_notifCfg.time()) {
+      const el = typeof elapsed !== 'undefined' ? elapsed : 0;
+      const h  = Math.floor(el / 3600);
+      const m  = Math.floor((el % 3600) / 60);
+      const s  = Math.floor(el % 60);
+      const t  = h > 0
+        ? `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
+        : `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+      parts.push('⏱ ' + t);
+    }
+    if (_notifCfg.pace()) {
+      const dist = typeof d !== 'undefined' ? d : 0;
+      const el   = typeof elapsed !== 'undefined' ? elapsed : 0;
+      if (dist > 0 && el > 0) {
+        const secPerM = el / dist;
+        parts.push('🏃 ' + _paceToSpeech(secPerM, paceUnit));
+      }
+    }
+    if (_notifCfg.speed()) {
+      const dist = typeof d !== 'undefined' ? d : 0;
+      const el   = typeof elapsed !== 'undefined' ? elapsed : 0;
+      if (dist > 0 && el > 0) {
+        parts.push('💨 ' + _speedToSpeech(dist/el, speedUnit));
+      }
+    }
+    if (_notifCfg.steps()) {
+      const st = typeof stepCount !== 'undefined' ? stepCount : 0;
+      parts.push('👟 ' + st + ' pasos');
+    }
+    return parts.join('  ·  ');
+  }
+
+  function _startLiveNotif() {
+    _stopLiveNotif();
+    if (!_notifPermission || !('Notification' in window)) return;
+    _liveNotifInterval = setInterval(() => {
+      if (!running || paused) return;
+      try {
+        new Notification('🏃 StrongStep — en curso', {
+          body:     _buildLiveNotifBody(),
+          tag:      'strongstep-live',
+          renotify: false,
+          silent:   true
+        });
+      } catch(_) {}
+    }, 1000);
+  }
+
+  function _stopLiveNotif() {
+    if (_liveNotifInterval) {
+      clearInterval(_liveNotifInterval);
+      _liveNotifInterval = null;
+    }
   }
 
   function _speakAnnounce(distM, elapsedSec) {
@@ -4954,16 +5056,19 @@
   showRunning = function() {
     _origShowRunning();
     _bgStart();
+    _startLiveNotif();
   };
 
   showStartOnly = function() {
     _origShowStartOnly();
     _bgStop();
+    _stopLiveNotif();
   };
 
   showStopped = function() {
     _origShowStopped();
     _bgStop();
+    _stopLiveNotif();
   };
 
 </script>
