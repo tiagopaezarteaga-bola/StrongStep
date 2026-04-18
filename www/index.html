@@ -3784,21 +3784,43 @@
    *  Muestra un banner en la barra de notificaciones
    *  con distancia y tiempo actuales.
    * ══════════════════════════════════════════════ */
+  // ── Puente nativo Android para notificaciones ──
+  // window.AndroidNotif es inyectado por MainActivity.java
+  // Fallback: Web Notifications API (navegador)
+
   let _notifPermission = false;
 
+  // Callback que llama Android cuando el usuario responde al diálogo
+  window._onNotifPermission = function(granted) {
+    _notifPermission = granted;
+    if (granted) addLog('🔔 Notificaciones activadas', 'hi');
+    else addLog('🔕 Notificaciones denegadas', 'warn');
+  };
+
   (function _initNotifications() {
-    if (!('Notification' in window)) return;
-    if (Notification.permission === 'granted') {
-      _notifPermission = true;
-    } else if (Notification.permission !== 'denied') {
-      Notification.requestPermission().then(p => {
-        _notifPermission = p === 'granted';
-        if (_notifPermission) addLog('🔔 Notificaciones activadas', 'hi');
-      });
+    if (window.AndroidNotif) {
+      // Modo APK: verificar si ya tiene permiso
+      if (window.AndroidNotif.hasPermission()) {
+        _notifPermission = true;
+        addLog('🔔 Notificaciones listas (nativo)', 'hi');
+      } else {
+        // Pedir permiso — respuesta llega vía _onNotifPermission
+        window.AndroidNotif.requestPermission();
+      }
+    } else if ('Notification' in window) {
+      // Modo navegador: Web Notifications API
+      if (Notification.permission === 'granted') {
+        _notifPermission = true;
+      } else if (Notification.permission !== 'denied') {
+        Notification.requestPermission().then(p => {
+          _notifPermission = p === 'granted';
+          if (_notifPermission) addLog('🔔 Notificaciones activadas', 'hi');
+        });
+      }
     }
   })();
 
-  // Referencias a los checkboxes de configuración de notificación
+  // Referencias a checkboxes de configuración
   const _notifCfg = {
     dist:  () => document.getElementById('notifDist')?.checked  ?? true,
     time:  () => document.getElementById('notifTime')?.checked  ?? true,
@@ -3809,15 +3831,14 @@
 
   // Notificación puntual (en cada anuncio de voz)
   function _showNotification(title, body) {
-    if (!_notifPermission || !('Notification' in window)) return;
-    try {
-      new Notification(title, {
-        body,
-        tag:      'strongstep-run',
-        renotify: true,
-        silent:   true
-      });
-    } catch(_) {}
+    if (!_notifPermission) return;
+    if (window.AndroidNotif) {
+      window.AndroidNotif.showNotification(title, body);
+    } else if ('Notification' in window) {
+      try {
+        new Notification(title, { body, tag: 'strongstep-run', renotify: true, silent: true });
+      } catch(_) {}
+    }
   }
 
   // ── Notificación en tiempo real (se actualiza cada segundo) ──
@@ -3828,54 +3849,50 @@
     if (_notifCfg.dist()) {
       const dist = typeof d !== 'undefined' ? d : 0;
       parts.push(dist >= 1000
-        ? '📍 ' + (dist/1000).toFixed(2) + ' km'
-        : '📍 ' + dist.toFixed(0) + ' m');
+        ? (dist/1000).toFixed(2) + ' km'
+        : dist.toFixed(0) + ' m');
     }
     if (_notifCfg.time()) {
       const el = typeof elapsed !== 'undefined' ? elapsed : 0;
       const h  = Math.floor(el / 3600);
       const m  = Math.floor((el % 3600) / 60);
       const s  = Math.floor(el % 60);
-      const t  = h > 0
+      parts.push(h > 0
         ? `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
-        : `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
-      parts.push('⏱ ' + t);
+        : `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`);
     }
     if (_notifCfg.pace()) {
       const dist = typeof d !== 'undefined' ? d : 0;
       const el   = typeof elapsed !== 'undefined' ? elapsed : 0;
-      if (dist > 0 && el > 0) {
-        const secPerM = el / dist;
-        parts.push('🏃 ' + _paceToSpeech(secPerM, paceUnit));
-      }
+      if (dist > 0 && el > 0) parts.push(_paceToSpeech(el/dist, paceUnit));
     }
     if (_notifCfg.speed()) {
       const dist = typeof d !== 'undefined' ? d : 0;
       const el   = typeof elapsed !== 'undefined' ? elapsed : 0;
-      if (dist > 0 && el > 0) {
-        parts.push('💨 ' + _speedToSpeech(dist/el, speedUnit));
-      }
+      if (dist > 0 && el > 0) parts.push(_speedToSpeech(dist/el, speedUnit));
     }
     if (_notifCfg.steps()) {
       const st = typeof stepCount !== 'undefined' ? stepCount : 0;
-      parts.push('👟 ' + st + ' pasos');
+      parts.push(st + ' pasos');
     }
-    return parts.join('  ·  ');
+    return parts.join(' · ');
   }
 
   function _startLiveNotif() {
     _stopLiveNotif();
-    if (!_notifPermission || !('Notification' in window)) return;
+    if (!_notifPermission) return;
     _liveNotifInterval = setInterval(() => {
       if (!running || paused) return;
-      try {
-        new Notification('🏃 StrongStep — en curso', {
-          body:     _buildLiveNotifBody(),
-          tag:      'strongstep-live',
-          renotify: false,
-          silent:   true
-        });
-      } catch(_) {}
+      const body = _buildLiveNotifBody();
+      if (window.AndroidNotif) {
+        window.AndroidNotif.showNotification('🏃 StrongStep', body);
+      } else if ('Notification' in window) {
+        try {
+          new Notification('🏃 StrongStep', {
+            body, tag: 'strongstep-live', renotify: false, silent: true
+          });
+        } catch(_) {}
+      }
     }, 1000);
   }
 
@@ -3883,6 +3900,7 @@
     if (_liveNotifInterval) {
       clearInterval(_liveNotifInterval);
       _liveNotifInterval = null;
+      if (window.AndroidNotif) window.AndroidNotif.cancelNotification();
     }
   }
 
