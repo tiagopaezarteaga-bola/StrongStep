@@ -3,6 +3,8 @@ package com.strongstep.app;
 import android.Manifest;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
+import android.app.PendingIntent;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
@@ -46,6 +48,15 @@ public class MainActivity extends BridgeActivity {
     @JavascriptInterface
     public void showNotification(String title, String body) {
       if (!hasPermission()) return;
+
+      // Al tocar la notificacion, abre la app
+      Intent intent = new Intent(MainActivity.this, MainActivity.class);
+      intent.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+      int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+      if (Build.VERSION.SDK_INT >= 23) flags |= PendingIntent.FLAG_IMMUTABLE;
+      PendingIntent pendingIntent = PendingIntent.getActivity(
+        MainActivity.this, 0, intent, flags);
+
       NotificationCompat.Builder builder = new NotificationCompat.Builder(
         MainActivity.this, CHANNEL_ID)
         .setSmallIcon(android.R.drawable.ic_media_play)
@@ -53,6 +64,7 @@ public class MainActivity extends BridgeActivity {
         .setContentText(body)
         .setStyle(new NotificationCompat.BigTextStyle().bigText(body))
         .setPriority(NotificationCompat.PRIORITY_LOW)
+        .setContentIntent(pendingIntent)
         .setOngoing(true)
         .setSilent(true)
         .setOnlyAlertOnce(true);
