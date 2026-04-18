@@ -38,140 +38,18 @@ jobs:
       - name: Sync Capacitor
         run: npx cap sync android
 
-      - name: Patch AndroidManifest — permisos
+      - name: Patch AndroidManifest
         run: |
           MANIFEST="android/app/src/main/AndroidManifest.xml"
           sed -i 's|<application|<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />\n    <uses-permission android:name="android.permission.WAKE_LOCK" />\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />\n    <uses-permission android:name="android.permission.VIBRATE" />\n    <application|' "$MANIFEST"
           sed -i 's|android:hardwareAccelerated="true"|android:hardwareAccelerated="true"\n            android:usesCleartextTraffic="true"|' "$MANIFEST"
-          echo "✅ Permisos añadidos"
+          echo "Permisos aplicados"
 
-      - name: Escribir MainActivity.java completo
+      - name: Copiar MainActivity.java
         run: |
-          MAIN="android/app/src/main/java/com/strongstep/app/MainActivity.java"
-          cat > "$MAIN" << 'JAVA'
-package com.strongstep.app;
-
-import android.Manifest;
-import android.app.NotificationChannel;
-import android.app.NotificationManager;
-import android.content.pm.PackageManager;
-import android.os.Build;
-import android.os.Bundle;
-import android.webkit.JavascriptInterface;
-import android.webkit.WebSettings;
-import android.webkit.WebView;
-import androidx.core.app.ActivityCompat;
-import androidx.core.app.NotificationCompat;
-import androidx.core.content.ContextCompat;
-import com.getcapacitor.BridgeActivity;
-
-public class MainActivity extends BridgeActivity {
-
-  private static final String CHANNEL_ID   = "strongstep_run";
-  private static final int    NOTIF_ID     = 1001;
-  private static final int    PERM_REQ     = 2001;
-
-  private NotificationManager notifManager;
-
-  // Puente Java ↔ JavaScript
-  public class NotifBridge {
-
-    @JavascriptInterface
-    public boolean hasPermission() {
-      if (Build.VERSION.SDK_INT < 33) return true;
-      return ContextCompat.checkSelfPermission(
-        MainActivity.this, Manifest.permission.POST_NOTIFICATIONS
-      ) == PackageManager.PERMISSION_GRANTED;
-    }
-
-    @JavascriptInterface
-    public void requestPermission() {
-      if (Build.VERSION.SDK_INT >= 33) {
-        ActivityCompat.requestPermissions(
-          MainActivity.this,
-          new String[]{ Manifest.permission.POST_NOTIFICATIONS },
-          PERM_REQ
-        );
-      }
-    }
-
-    @JavascriptInterface
-    public void showNotification(String title, String body) {
-      if (!hasPermission()) return;
-      NotificationCompat.Builder builder = new NotificationCompat.Builder(
-        MainActivity.this, CHANNEL_ID)
-        .setSmallIcon(android.R.drawable.ic_media_play)
-        .setContentTitle(title)
-        .setContentText(body)
-        .setStyle(new NotificationCompat.BigTextStyle().bigText(body))
-        .setPriority(NotificationCompat.PRIORITY_LOW)
-        .setOngoing(true)
-        .setSilent(true)
-        .setOnlyAlertOnce(true);
-      notifManager.notify(NOTIF_ID, builder.build());
-    }
-
-    @JavascriptInterface
-    public void cancelNotification() {
-      notifManager.cancel(NOTIF_ID);
-    }
-  }
-
-  @Override
-  protected void onCreate(Bundle savedInstanceState) {
-    super.onCreate(savedInstanceState);
-
-    // Canal de notificaciones
-    notifManager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
-    if (Build.VERSION.SDK_INT >= 26) {
-      NotificationChannel channel = new NotificationChannel(
-        CHANNEL_ID, "StrongStep — Carrera",
-        NotificationManager.IMPORTANCE_LOW
-      );
-      channel.setDescription("Métricas en tiempo real mientras corres");
-      channel.setSound(null, null);
-      notifManager.createNotificationChannel(channel);
-    }
-
-    // Configurar WebView
-    WebView webView = getBridge().getWebView();
-    WebSettings settings = webView.getSettings();
-    settings.setMediaPlaybackRequiresUserGesture(false);
-    settings.setJavaScriptEnabled(true);
-    settings.setDomStorageEnabled(true);
-
-    // Registrar puente JS
-    webView.addJavascriptInterface(new NotifBridge(), "AndroidNotif");
-
-    // Pedir permiso notificaciones Android 13+
-    if (Build.VERSION.SDK_INT >= 33) {
-      if (ContextCompat.checkSelfPermission(this,
-          Manifest.permission.POST_NOTIFICATIONS)
-          != PackageManager.PERMISSION_GRANTED) {
-        ActivityCompat.requestPermissions(this,
-          new String[]{ Manifest.permission.POST_NOTIFICATIONS }, PERM_REQ);
-      }
-    }
-  }
-
-  @Override
-  public void onRequestPermissionsResult(int requestCode,
-      String[] permissions, int[] grantResults) {
-    super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-    if (requestCode == PERM_REQ) {
-      boolean granted = grantResults.length > 0
-        && grantResults[0] == PackageManager.PERMISSION_GRANTED;
-      // Notificar a JS que el permiso fue resuelto
-      String js = "if(window._onNotifPermission) window._onNotifPermission(" + granted + ")";
-      getBridge().getWebView().post(() ->
-        getBridge().getWebView().evaluateJavascript(js, null)
-      );
-    }
-  }
-}
-JAVA
-          echo "✅ MainActivity.java escrito"
-          cat "$MAIN"
+          DEST="android/app/src/main/java/com/strongstep/app/MainActivity.java"
+          cp android-patch/MainActivity.java "$DEST"
+          echo "MainActivity.java copiado"
 
       - name: Make gradlew executable
         run: chmod +x android/gradlew
